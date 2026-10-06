@@ -1,19 +1,22 @@
 #cloud-config
+# ==============================================================================
+# Couche VM as Code - Plate-forme Pédagogique (Ubuntu 24.04 LTS)
+# ==============================================================================
 
-# Mise à jour du système au premier boot
+# 1. Mises à jour initiales du système
 package_update: true
-package_upgrade: false
+package_upgrade: true
+package_reboot_if_required: false
 
-# Fuseau horaire et nom d'hôte
 timezone: America/Toronto
-fqdn: platform-pedago.local
+fqdn: platform-pedago.lab.local
 hostname: platform-pedago
 
-# Création du compte d'exploitation avec privilèges sudo sans mot de passe
+# 2. Utilisateur d'administration & Sécurité SSH
 users:
   - default
   - name: sysadmin
-    gecos: System Administrator
+    gecos: Administrateur Plateforme
     primary_group: sysadmin
     groups: [sudo, docker]
     sudo: ALL=(ALL) NOPASSWD:ALL
@@ -22,23 +25,25 @@ users:
     ssh_authorized_keys:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIERUbGKNrQ1A5/cyoPY/clq0EOou9VH5wS8tXLjES/a2 admin-windows-vs-code
 
-# Paquets système essentiels (Docker Engine, Compose, réseau, agent invité)
+# 3. Paquets système essentiels, pare-feu et Docker
 packages:
+  - apt-transport-https
+  - ca-certificates
   - curl
   - wget
-  - git
-  - vim
-  - htop
-  - ca-certificates
   - gnupg
   - lsb-release
+  - git
+  - jq
+  - htop
+  - ufw
   - qemu-guest-agent
   - docker.io
   - docker-compose-v2
 
-# Configuration système déclarative
+# 4. Fichiers de configuration déclaratifs (Docker, Journalisation, Arborescence)
 write_files:
-  # Rétrocompatibilité Docker Engine pour le reverse proxy Traefik v3
+  # Rétrocompatibilité Docker Engine pour le fournisseur Traefik v3
   - path: /etc/docker/daemon.json
     owner: root:root
     permissions: '0644'
@@ -52,17 +57,51 @@ write_files:
         "min-api-version": "1.24"
       }
 
-# Durcissement SSH et initialisation des démons
+  # Configuration de la rotation des journaux système de la plateforme
+  - path: /etc/logrotate.d/platform-pedago
+    owner: root:root
+    permissions: '0644'
+    content: |
+      /var/log/platform-pedago/*.log {
+          weekly
+          rotate 4
+          compress
+          missingok
+          notifempty
+      }
+
+# 5. Préparation des répertoires, Durcissement SSH, Pare-feu UFW et Services
 runcmd:
-  # Communication et remontée de l'adresse IP vers QEMU
+  # Préparation des répertoires de travail et de journalisation
+  - mkdir -p /opt/platform-pedago
+  - mkdir -p /var/log/platform-pedago
+  - chown -R sysadmin:docker /opt/platform-pedago
+  - chmod 775 /opt/platform-pedago
+  - touch /var/log/platform-pedago/provisioning.log
+  - echo "Initialisation du nœud débutée à $(date)" >> /var/log/platform-pedago/provisioning.log
+
+  # Démarrage de l'agent QEMU
   - systemctl enable --now qemu-guest-agent
-  # Activation et redémarrage du moteur Docker avec sa configuration ajustée
-  - systemctl enable docker
-  - systemctl restart docker
-  # Durcissement du service OpenSSH
+
+  # Durcissement SSH (Accès par clé uniquement)
   - sed -i -e '/^#\?PermitRootLogin/s/^.*$/PermitRootLogin no/' /etc/ssh/sshd_config
   - sed -i -e '/^#\?PasswordAuthentication/s/^.*$/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl restart ssh
+
+  # Configuration du pare-feu hôte minimal (UFW)
+  - ufw --force reset
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp comment 'SSH Administration'
+  - ufw allow 80/tcp comment 'HTTP Traefik Reverse Proxy'
+  - ufw allow 443/tcp comment 'HTTPS Traefik Reverse Proxy'
+  - ufw --force enable
+
+  # Activation et rechargement de Docker
+  - systemctl enable docker
+  - systemctl restart docker
+
+  - echo "Initialisation achevée avec succès à $(date)" >> /var/log/platform-pedago/provisioning.log
 
 final_message: "Le déploiement Cloud-Init s'est terminé avec succès après $UPTIME secondes."
 
