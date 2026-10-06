@@ -1,0 +1,19 @@
+# Exclusion stricte des secrets
+.env
+compose/.env
+*.env
+
+# Clés et certificats privés
+*.key
+*.pem
+id_*
+
+# Données persistantes locales Docker
+data/
+compose/data/
+
+# Fichiers systèmes et éditeurs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

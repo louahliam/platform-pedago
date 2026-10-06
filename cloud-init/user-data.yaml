@@ -1,0 +1,68 @@
+#cloud-config
+
+# Mise à jour du système au premier boot
+package_update: true
+package_upgrade: false
+
+# Fuseau horaire et nom d'hôte
+timezone: America/Toronto
+fqdn: platform-pedago.local
+hostname: platform-pedago
+
+# Création du compte d'exploitation avec privilèges sudo sans mot de passe
+users:
+  - default
+  - name: sysadmin
+    gecos: System Administrator
+    primary_group: sysadmin
+    groups: [sudo, docker]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIERUbGKNrQ1A5/cyoPY/clq0EOou9VH5wS8tXLjES/a2 admin-windows-vs-code
+
+# Paquets système essentiels (Docker Engine, Compose, réseau, agent invité)
+packages:
+  - curl
+  - wget
+  - git
+  - vim
+  - htop
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - qemu-guest-agent
+  - docker.io
+  - docker-compose-v2
+
+# Configuration système déclarative
+write_files:
+  # Rétrocompatibilité Docker Engine pour le reverse proxy Traefik v3
+  - path: /etc/docker/daemon.json
+    owner: root:root
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "min-api-version": "1.24"
+      }
+
+# Durcissement SSH et initialisation des démons
+runcmd:
+  # Communication et remontée de l'adresse IP vers QEMU
+  - systemctl enable --now qemu-guest-agent
+  # Activation et redémarrage du moteur Docker avec sa configuration ajustée
+  - systemctl enable docker
+  - systemctl restart docker
+  # Durcissement du service OpenSSH
+  - sed -i -e '/^#\?PermitRootLogin/s/^.*$/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i -e '/^#\?PasswordAuthentication/s/^.*$/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart ssh
+
+final_message: "Le déploiement Cloud-Init s'est terminé avec succès après $UPTIME secondes."
+
